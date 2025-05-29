@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>{{ _('dashboard') }}</h2>
+    <a href="{{ url_for('add_password') }}" class="btn btn-primary">{{ _('add_password') }}</a>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" action="{{ url_for('dashboard') }}" class="row g-3">
+            <div class="col-md-10">
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input type="text" class="form-control" name="search" value="{{ search_query }}" placeholder="{{ _('search_placeholder') }}">
+                </div>
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-primary w-100">{{ _('search') }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if grouped_passwords %}
+    {% for title, passwords in grouped_passwords.items() %}
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">{{ title }}</h5>
+            <span class="badge bg-secondary">{{ passwords|length }} {{ _('accounts') }}</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>{{ _('username') }}</th>
+                            <th>{{ _('password') }}</th>
+                            <th>{{ _('created_at') }}</th>
+                            <th>{{ _('actions') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for password in passwords %}
+                        <tr>
+                            <td>{{ password.username }}</td>
+                            <td>
+                                <div class="input-group">
+                                    <input type="password" class="form-control" value="{{ cipher_suite.decrypt(password.encrypted_password).decode() }}" readonly>
+                                    <button class="btn btn-outline-secondary toggle-password" type="button">{{ _('show') }}</button>
+                                </div>
+                            </td>
+                            <td>{{ password.created_at.strftime('%d/%m/%Y %H:%M') }}</td>
+                            <td>
+                                <div class="btn-group">
+                                    <a href="{{ url_for('edit_password', password_id=password.id) }}" class="btn btn-sm btn-warning">{{ _('edit') }}</a>
+                                    <a href="{{ url_for('delete_password', password_id=password.id) }}" class="btn btn-sm btn-danger" onclick="return confirm('{{ _('confirm_delete') }}')">{{ _('delete') }}</a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+{% else %}
+    <div class="alert alert-info">
+        {% if search_query %}
+            {{ _('no_results') }}
+        {% else %}
+            {{ _('no_passwords') }}
+        {% endif %}
+    </div>
+{% endif %}
+
+<script>
+document.querySelectorAll('.toggle-password').forEach(button => {
+    button.addEventListener('click', function() {
+        const input = this.previousElementSibling;
+        if (input.type === 'password') {
+            input.type = 'text';
+            this.textContent = '{{ _('hide') }}';
+        } else {
+            input.type = 'password';
+            this.textContent = '{{ _('show') }}';
+        }
+    });
+});
+</script>
+{% endblock %} 
