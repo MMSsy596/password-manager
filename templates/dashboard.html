@@ -3,7 +3,16 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2>{{ _('dashboard') }}</h2>
-    <a href="{{ url_for('add_password') }}" class="btn btn-primary">{{ _('add_password') }}</a>
+    <div class="btn-group">
+        <a href="{{ url_for('add_password') }}" class="btn btn-primary">{{ _('add_password') }}</a>
+        <button type="button" class="btn btn-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+            {{ _('import_export') }}
+        </button>
+        <ul class="dropdown-menu">
+            <li><a class="dropdown-item" href="{{ url_for('export_passwords') }}">{{ _('export_passwords') }} (CSV)</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('import_passwords') }}">{{ _('import_passwords') }} (CSV)</a></li>
+        </ul>
+    </div>
 </div>
 
 <div class="card mb-4">

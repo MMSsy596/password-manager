@@ -8,10 +8,12 @@ from datetime import datetime
 from translations.vi import translations as vi_translations
 from translations.en import translations as en_translations
 from translations.zh import translations as zh_translations
+import csv
+from io import StringIO
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.urandom(24)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///passwords.db'
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', os.urandom(24))
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///passwords.db').replace('postgres://', 'postgresql://')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -200,6 +202,65 @@ def delete_password(password_id):
     db.session.commit()
     flash(get_translation('password_deleted'))
     return redirect(url_for('dashboard'))
+
+@app.route('/export_passwords')
+@login_required
+def export_passwords():
+    passwords = Password.query.filter_by(user_id=current_user.id).all()
+    si = StringIO()
+    cw = csv.writer(si)
+    cw.writerow(['title', 'username', 'password'])
+    for password in passwords:
+        decrypted_password = cipher_suite.decrypt(password.encrypted_password).decode()
+        cw.writerow([password.title, password.username, decrypted_password])
+
+    output = si.getvalue()
+    response = app.make_response(output)
+    response.headers['Content-Disposition'] = 'attachment; filename=passwords.csv'
+    response.headers['Content-type'] = 'text/csv'
+    return response
+
+@app.route('/import_passwords', methods=['GET', 'POST'])
+@login_required
+def import_passwords():
+    if request.method == 'POST':
+        if 'file' not in request.files:
+            flash(get_translation('no_file_part'))
+            return redirect(url_for('dashboard'))
+        file = request.files['file']
+        if file.filename == '':
+            flash(get_translation('no_selected_file'))
+            return redirect(url_for('dashboard'))
+        if file and file.filename.endswith('.csv'):
+            stream = StringIO(file.stream.read().decode("UTF8"))
+            reader = csv.reader(stream)
+            next(reader) # Skip header row
+            imported_count = 0
+            for row in reader:
+                try:
+                    title, username, password_text = row
+                    encrypted_password = cipher_suite.encrypt(password_text.encode())
+                    new_password = Password(
+                        title=title,
+                        username=username,
+                        encrypted_password=encrypted_password,
+                        user_id=current_user.id
+                    )
+                    db.session.add(new_password)
+                    imported_count += 1
+                except Exception as e:
+                    # Log error or handle specific CSV format issues
+                    print(f"Error importing row: {row} - {e}")
+                    flash(get_translation('import_row_error').format(row=row, error=e))
+
+            db.session.commit()
+            flash(get_translation('import_success').format(count=imported_count))
+            return redirect(url_for('dashboard'))
+        else:
+            flash(get_translation('invalid_file_format'))
+            return redirect(url_for('dashboard'))
+
+    return render_template('import_passwords.html')
 
 if __name__ == '__main__':
     with app.app_context():
