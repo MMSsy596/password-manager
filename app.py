@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -10,6 +10,8 @@ from translations.en import translations as en_translations
 from translations.zh import translations as zh_translations
 import csv
 from io import StringIO
+import json
+from functools import wraps
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', os.urandom(24))
@@ -48,10 +50,22 @@ def get_translation(key):
 def utility_processor():
     return dict(_=get_translation)
 
+# Decorator cho admin
+def admin_required(f):
+    @wraps(f)
+    @login_required
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_admin:
+            flash(get_translation('admin_required'))
+            return redirect(url_for('dashboard'))
+        return f(*args, **kwargs)
+    return decorated_function
+
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(120), nullable=False)
+    is_admin = db.Column(db.Boolean, default=False, nullable=False)
     passwords = db.relationship('Password', backref='user', lazy=True)
 
 class Password(db.Model):
@@ -80,7 +94,9 @@ def register():
             flash(get_translation('username_exists'))
             return redirect(url_for('register'))
         
-        user = User(username=username, password_hash=generate_password_hash(password))
+        # Người dùng đầu tiên đăng ký sẽ là admin
+        is_admin = not User.query.first() 
+        user = User(username=username, password_hash=generate_password_hash(password), is_admin=is_admin)
         db.session.add(user)
         db.session.commit()
         
@@ -261,6 +277,104 @@ def import_passwords():
             return redirect(url_for('dashboard'))
 
     return render_template('import_passwords.html')
+
+# Admin routes
+
+@app.route('/admin/backup')
+@admin_required
+def admin_backup():
+    all_passwords = Password.query.all()
+    backup_data = []
+    for password in all_passwords:
+        try:
+            decrypted_password = cipher_suite.decrypt(password.encrypted_password).decode()
+        except Exception:
+            # Handle potential decryption errors for old/corrupted data
+            decrypted_password = "[DECRYPTION FAILED]"
+
+        backup_data.append({
+            'user_id': password.user_id,
+            'title': password.title,
+            'username': password.username,
+            'password': decrypted_password,
+            'created_at': password.created_at.isoformat()
+        })
+
+    response = app.make_response(json.dumps(backup_data, indent=4))
+    response.headers['Content-Disposition'] = 'attachment; filename=password_backup.json'
+    response.headers['Content-type'] = 'application/json'
+    return response
+
+@app.route('/admin/restore', methods=['GET', 'POST'])
+@admin_required
+def admin_restore():
+    if request.method == 'POST':
+        if 'file' not in request.files:
+            flash(get_translation('no_file_part'))
+            return redirect(url_for('admin_restore'))
+        file = request.files['file']
+        if file.filename == '':
+            flash(get_translation('no_selected_file'))
+            return redirect(url_for('admin_restore'))
+
+        if file and file.filename.endswith('.json'):
+            try:
+                backup_data = json.loads(file.stream.read().decode("utf-8"))
+                imported_count = 0
+                # Optional: Clear existing data before import if desired
+                # db.session.query(Password).delete()
+                # db.session.query(User).delete()
+                # db.session.commit()
+
+                # Note: This simple restore assumes user_id still exists or handles creation.
+                # A more robust solution might match users by username or handle mapping.
+                # For this example, we'll rely on user_id existing.
+
+                for entry in backup_data:
+                    try:
+                        # Check if user_id exists before creating password
+                        user_exists = User.query.get(entry['user_id'])
+                        if not user_exists:
+                             print(f"Warning: User with ID {entry['user_id']} not found. Skipping password for {entry['title']}.")
+                             flash(get_translation('restore_user_not_found').format(user_id=entry['user_id'], title=entry['title']))
+                             continue
+
+                        encrypted_password = cipher_suite.encrypt(entry['password'].encode())
+                        # Attempt to parse created_at, default to now if failed
+                        created_at = datetime.fromisoformat(entry['created_at']) if 'created_at' in entry else datetime.utcnow()
+
+                        new_password = Password(
+                            user_id=entry['user_id'],
+                            title=entry['title'],
+                            username=entry['username'],
+                            encrypted_password=encrypted_password,
+                            created_at=created_at
+                        )
+                        db.session.add(new_password)
+                        imported_count += 1
+                    except Exception as e:
+                        print(f"Error importing entry: {entry} - {e}")
+                        flash(get_translation('restore_entry_error').format(entry=entry, error=e))
+                        # Decide whether to rollback or continue on error
+                        db.session.rollback() # Rollback the current transaction
+                        # Or continue: pass
+
+                db.session.commit()
+                flash(get_translation('restore_success').format(count=imported_count))
+                return redirect(url_for('dashboard')) # Redirect to dashboard or admin page
+
+            except json.JSONDecodeError:
+                 flash(get_translation('invalid_json_format'))
+            except Exception as e:
+                 flash(get_translation('restore_failed').format(error=e))
+                 print(f"Restore failed: {e}")
+
+            return redirect(url_for('admin_restore'))
+        else:
+            flash(get_translation('invalid_file_format'))
+            return redirect(url_for('admin_restore'))
+
+    return render_template('admin/restore.html')
 
 if __name__ == '__main__':
     with app.app_context():

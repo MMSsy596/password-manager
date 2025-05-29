@@ -11,6 +11,12 @@
         <ul class="dropdown-menu">
             <li><a class="dropdown-item" href="{{ url_for('export_passwords') }}">{{ _('export_passwords') }} (CSV)</a></li>
             <li><a class="dropdown-item" href="{{ url_for('import_passwords') }}">{{ _('import_passwords') }} (CSV)</a></li>
+            {% if current_user.is_admin %}
+            <li><hr class="dropdown-divider"></li>
+            <li><span class="dropdown-item-text">{{ _('admin') }}</span></li>
+            <li><a class="dropdown-item" href="{{ url_for('admin_backup') }}">{{ _('admin_backup') }} (JSON)</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('admin_restore') }}">{{ _('admin_restore') }} (JSON)</a></li>
+            {% endif %}
         </ul>
     </div>
 </div>
