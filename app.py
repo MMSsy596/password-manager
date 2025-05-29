@@ -264,5 +264,9 @@ def import_passwords():
 
 if __name__ == '__main__':
     with app.app_context():
-        db.create_all()
-    app.run(debug=True) 
+        # db.create_all() # Di chuyển dòng này ra ngoài
+        pass # Giữ lại khối này nếu cần các lệnh khác chỉ chạy khi script được gọi trực tiếp
+    app.run(debug=True)
+
+with app.app_context():
+    db.create_all() 
